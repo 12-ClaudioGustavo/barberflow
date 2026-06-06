@@ -10,6 +10,7 @@ import { authController } from '../controllers/authController.js';
 import { clientsController } from '../controllers/clientsController.js';
 import { superAdminController } from '../controllers/superAdminController.js';
 import { notificationsController } from '../controllers/notificationsController.js';
+import { pushController } from '../controllers/pushController.js';
 import { authMiddleware } from '../middlewares/authMiddleware.js';
 import { roleMiddleware } from '../middlewares/roleMiddleware.js';
 
@@ -247,6 +248,21 @@ router.patch(
   '/notifications/:id/read',
   authMiddleware,
   notificationsController.markAsRead
+);
+
+// =========================================================================
+// ROTAS DE NOTIFICAÇÕES PUSH (Web Push)
+// =========================================================================
+router.post(
+  '/push/subscribe',
+  authMiddleware,
+  pushController.subscribe
+);
+
+router.post(
+  '/push/unsubscribe',
+  authMiddleware,
+  pushController.unsubscribe
 );
 
 export default router;

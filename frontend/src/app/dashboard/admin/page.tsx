@@ -563,9 +563,11 @@ export default function AdminDashboardPage() {
 
   return (
     <div className="min-h-screen bg-black text-white flex flex-col md:flex-row font-sans relative">
-      {/* Elementos Decorativos Background */}
-      <div className="absolute top-0 left-0 w-[500px] h-[500px] rounded-full bg-amber-500/5 blur-[120px] pointer-events-none z-0" />
-      <div className="absolute bottom-0 right-0 w-[500px] h-[500px] rounded-full bg-amber-500/5 blur-[120px] pointer-events-none z-0" />
+      {/* Container de Background Decorativo para prevenir overflow */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
+        <div className="absolute top-0 left-0 w-[500px] h-[500px] rounded-full bg-amber-500/5 blur-[120px]" />
+        <div className="absolute bottom-0 right-0 w-[500px] h-[500px] rounded-full bg-amber-500/5 blur-[120px]" />
+      </div>
 
       {/* Header Superior Mobile */}
       <div className="flex md:hidden items-center justify-between p-4 bg-neutral-950/90 backdrop-blur-md border-b border-white/5 z-20 sticky top-0">

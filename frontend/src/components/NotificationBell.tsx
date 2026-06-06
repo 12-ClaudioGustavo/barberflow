@@ -29,6 +29,21 @@ interface Notification {
 const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
 const socketUrl = apiUrl.replace('/api/v1', '');
 
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding)
+    .replace(/\-/g, '+')
+    .replace(/_/g, '/');
+
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
 export default function NotificationBell() {
   const { user, session } = useAuthStore();
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -38,6 +53,66 @@ export default function NotificationBell() {
   const socketRef = useRef<Socket | null>(null);
 
   const unreadCount = notifications.filter(n => !n.read).length;
+
+  // Registrar inscrição push do dispositivo
+  useEffect(() => {
+    const token = session?.access_token;
+    if (!token || !user?.id) return;
+
+    async function registerPush() {
+      if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+        console.warn('Mensagens Push não são suportadas por este navegador.');
+        return;
+      }
+
+      try {
+        const registration = await navigator.serviceWorker.ready;
+        
+        // Verificar permissão
+        let permission = Notification.permission;
+        if (permission === 'default') {
+          permission = await Notification.requestPermission();
+        }
+
+        if (permission !== 'granted') {
+          console.warn('Permissão de notificações não concedida pelo usuário.');
+          return;
+        }
+
+        // Buscar chave VAPID pública
+        const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+        if (!vapidPublicKey) {
+          console.error('Chave pública VAPID (NEXT_PUBLIC_VAPID_PUBLIC_KEY) não configurada no frontend.');
+          return;
+        }
+
+        let subscription = await registration.pushManager.getSubscription();
+
+        if (!subscription) {
+          const convertedVapidKey = urlBase64ToUint8Array(vapidPublicKey);
+          subscription = await registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: convertedVapidKey
+          });
+        }
+
+        // Enviar para o backend
+        await fetch(`${apiUrl}/push/subscribe`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({ subscription })
+        });
+      } catch (err) {
+        console.error('Erro ao registrar notificações push:', err);
+      }
+    }
+
+    const timeoutId = setTimeout(registerPush, 3000);
+    return () => clearTimeout(timeoutId);
+  }, [session, user]);
 
   // Carregar notificações existentes
   const fetchNotifications = async () => {

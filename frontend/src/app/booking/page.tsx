@@ -199,7 +199,7 @@ export default function ClientBookingPage() {
 
         // Set initial display date to today if not set
         if (!selectedDisplayDate) {
-          const today = new Date().toISOString().substring(0, 10);
+          const today = new Date().toLocaleDateString('en-CA'); // format YYYY-MM-DD in local time
           setSelectedDisplayDate(today);
         }
       } catch (err: any) {
@@ -221,7 +221,7 @@ export default function ClientBookingPage() {
       setErrorMsg('');
 
       try {
-        const startDate = new Date().toISOString().substring(0, 10);
+        const startDate = new Date().toLocaleDateString('en-CA');
         const newWeeklyData = new Map<string, Map<string, DailyAvailability>>();
 
         // For each employee, load 7-day availability for the first active service

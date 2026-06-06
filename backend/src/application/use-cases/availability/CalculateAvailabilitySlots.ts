@@ -24,7 +24,10 @@ export class CalculateAvailabilitySlots {
     const serviceDuration = serviceRes.rows[0].duration_minutes;
 
     // 2. Obter a escala de trabalho do funcionário para o dia da semana correspondente (0 = Domingo, 6 = Sábado)
-    const dayOfWeek = targetDate.getUTCDay(); // Usar UTC para evitar problemas de fuso horário local no backend
+    // Extrair ano, mês e dia da string YYYY-MM-DD para garantir o dia da semana correto em UTC
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const dayOfWeek = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+
     const shiftRes = await db.query(
       `SELECT start_time, end_time, break_start_time, break_end_time, is_working_day
        FROM shift_schedules

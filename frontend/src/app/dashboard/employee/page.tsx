@@ -91,7 +91,7 @@ export default function EmployeeDashboardPage() {
 
   useEffect(() => {
     if (user && session) {
-      const today = new Date().toISOString().substring(0, 10);
+      const today = new Date().toLocaleDateString('en-CA');
       setSelectedDate(today);
       loadAppointments(today);
     }

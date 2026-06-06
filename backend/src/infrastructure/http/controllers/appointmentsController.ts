@@ -255,9 +255,11 @@ export const appointmentsController = {
       }
 
       if (date) {
-        query += ` AND a.scheduled_time::date = $${paramIndex}`;
-        params.push(date);
-        paramIndex++;
+        const startOfDay = `${date}T00:00:00.000Z`;
+        const endOfDay = `${date}T23:59:59.999Z`;
+        query += ` AND a.scheduled_time >= $${paramIndex} AND a.scheduled_time <= $${paramIndex + 1}`;
+        params.push(startOfDay, endOfDay);
+        paramIndex += 2;
       }
 
       query += ' ORDER BY a.scheduled_time ASC';

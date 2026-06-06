@@ -127,7 +127,7 @@ export default function AdminDashboardPage() {
   const [successMsg, setSuccessMsg] = useState('');
 
   // Filtros de busca
-  const [filterDate, setFilterDate] = useState(new Date().toISOString().substring(0, 10));
+  const [filterDate, setFilterDate] = useState(new Date().toLocaleDateString('en-CA'));
   const [filterEmployeeId, setFilterEmployeeId] = useState('');
   const [clientSearch, setClientSearch] = useState('');
 

@@ -86,10 +86,13 @@ export default function NotificationBell() {
           return;
         }
 
+        // Sanitizar a chave para remover aspas extras ou quebras de linha que possam vir do painel de deploy
+        const cleanVapidKey = vapidPublicKey.trim().replace(/['"]/g, '');
+
         let subscription = await registration.pushManager.getSubscription();
 
         if (!subscription) {
-          const convertedVapidKey = urlBase64ToUint8Array(vapidPublicKey);
+          const convertedVapidKey = urlBase64ToUint8Array(cleanVapidKey);
           subscription = await registration.pushManager.subscribe({
             userVisibleOnly: true,
             applicationServerKey: convertedVapidKey

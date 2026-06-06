@@ -1,0 +1,201 @@
+import { Response } from 'express';
+import { AuthenticatedRequest } from '../middlewares/authMiddleware.js';
+import { db } from '../../database/pg.js';
+import { z } from 'zod';
+import { cache } from '../../cache/redis.js';
+
+const appointmentCreateSchema = z.object({
+  clientProfileId: z.string().uuid(),
+  employeeProfileId: z.string().uuid(),
+  serviceId: z.string().uuid(),
+  scheduledTime: z.string().refine(val => !isNaN(Date.parse(val)), { message: 'Invalid datetime format' }),
+});
+
+export const appointmentsController = {
+  // Criar agendamento com tratamento anticonflito concorrente (Serializable Transaction)
+  async create(req: AuthenticatedRequest, res: Response) {
+    const pgClient = await db.connect();
+    try {
+      const tenantId = req.user?.tenantId;
+      const parsed = appointmentCreateSchema.parse(req.body);
+      
+      const scheduledTimeDate = new Date(parsed.scheduledTime);
+      
+      // 1. Obter duração do serviço
+      const serviceRes = await pgClient.query(
+        'SELECT duration_minutes, name FROM services WHERE id = $1 AND tenant_id = $2',
+        [parsed.serviceId, tenantId]
+      );
+      if (serviceRes.rowCount === 0) {
+        return res.status(404).json({ error: 'Service not found' });
+      }
+      
+      const serviceDuration = serviceRes.rows[0].duration_minutes;
+      const endTimeDate = new Date(scheduledTimeDate.getTime() + serviceDuration * 60000);
+
+      // Iniciar transação serializável
+      await pgClient.query('BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE');
+
+      // 2. Verificar sobreposição imediata de agendamentos para o barbeiro
+      const overlapQuery = `
+        SELECT id FROM appointments
+        WHERE employee_profile_id = $1 
+          AND tenant_id = $2 
+          AND status != 'cancelled'
+          AND (
+            (scheduled_time < $4 AND end_time > $3) -- Sobreposição parcial ou total
+          )
+      `;
+      const overlapRes = await pgClient.query(overlapQuery, [
+        parsed.employeeProfileId,
+        tenantId,
+        scheduledTimeDate.toISOString(),
+        endTimeDate.toISOString()
+      ]);
+
+      if (overlapRes.rowCount && overlapRes.rowCount > 0) {
+        await pgClient.query('ROLLBACK');
+        return res.status(409).json({ 
+          error: 'Time slot conflict: The selected barber is already booked for this time range' 
+        });
+      }
+
+      // 3. Inserir o agendamento
+      const insertQuery = `
+        INSERT INTO appointments (tenant_id, client_profile_id, employee_profile_id, service_id, scheduled_time, end_time, status)
+        VALUES ($1, $2, $3, $4, $5, $6, 'scheduled')
+        RETURNING *
+      `;
+      const result = await pgClient.query(insertQuery, [
+        tenantId,
+        parsed.clientProfileId,
+        parsed.employeeProfileId,
+        parsed.serviceId,
+        scheduledTimeDate.toISOString(),
+        endTimeDate.toISOString()
+      ]);
+
+      await pgClient.query('COMMIT');
+      
+      const appointment = result.rows[0];
+
+      // 4. Invalidação do cache Redis para o barbeiro e data correspondente
+      const dateStr = scheduledTimeDate.toISOString().substring(0, 10);
+      const pattern = `tenant:${tenantId}:employee:${parsed.employeeProfileId}:availability:${dateStr}:*`;
+      await cache.delByPattern(pattern);
+
+      // 5. Emitir evento Websocket para atualização em tempo real (caso o WebSocket esteja acoplado no app)
+      // Usaremos o emissor global se disponível (configuraremos no server.ts)
+      const io = req.app.get('io');
+      if (io) {
+        io.to(`tenant:${tenantId}`).emit('appointment_created', {
+          appointment,
+          message: 'Novo agendamento criado'
+        });
+      }
+
+      return res.status(201).json(appointment);
+    } catch (err: any) {
+      await pgClient.query('ROLLBACK');
+      
+      // Tratar erro do nível serializável (40001: serialization_failure)
+      if (err.code === '40001') {
+        return res.status(409).json({ 
+          error: 'Booking conflict: Parallel transaction collision. Please try again.' 
+        });
+      }
+
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ errors: err.errors });
+      }
+      return res.status(500).json({ error: err.message });
+    } finally {
+      pgClient.release();
+    }
+  },
+
+  // Listar agendamentos do tenant (com filtros opcionais de data/barbeiro)
+  async list(req: AuthenticatedRequest, res: Response) {
+    try {
+      const tenantId = req.user?.tenantId;
+      const { employeeId, date } = req.query;
+      
+      let query = `
+        SELECT a.*, c.name as client_name, c.phone as client_phone, u.name as employee_name, s.name as service_name
+        FROM appointments a
+        INNER JOIN client_profiles c ON a.client_profile_id = c.id
+        INNER JOIN employee_profiles ep ON a.employee_profile_id = ep.id
+        INNER JOIN users u ON ep.user_id = u.id
+        INNER JOIN services s ON a.service_id = s.id
+        WHERE a.tenant_id = $1
+      `;
+      const params: any[] = [tenantId];
+      let paramIndex = 2;
+
+      if (employeeId) {
+        query += ` AND a.employee_profile_id = $${paramIndex}`;
+        params.push(employeeId);
+        paramIndex++;
+      }
+
+      if (date) {
+        query += ` AND a.scheduled_time::date = $${paramIndex}`;
+        params.push(date);
+        paramIndex++;
+      }
+
+      query += ' ORDER BY a.scheduled_time ASC';
+
+      const result = await db.query(query, params);
+      return res.json(result.rows);
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  },
+
+  // Atualizar status (Confirmado, Finalizado, Cancelado)
+  async updateStatus(req: AuthenticatedRequest, res: Response) {
+    try {
+      const tenantId = req.user?.tenantId;
+      const { id } = req.params;
+      const { status } = req.body;
+
+      const allowedStatuses = ['scheduled', 'confirmed', 'in_progress', 'completed', 'cancelled'];
+      if (!allowedStatuses.includes(status)) {
+        return res.status(400).json({ error: `Invalid status. Must be one of ${allowedStatuses.join(', ')}` });
+      }
+
+      // Buscar agendamento antes de atualizar para invalidar cache correto
+      const checkRes = await db.query(
+        'SELECT employee_profile_id, scheduled_time FROM appointments WHERE id = $1 AND tenant_id = $2',
+        [id, tenantId]
+      );
+
+      if (checkRes.rowCount === 0) {
+        return res.status(404).json({ error: 'Appointment not found' });
+      }
+
+      const appointmentObj = checkRes.rows[0];
+
+      const result = await db.query(
+        'UPDATE appointments SET status = $1 WHERE id = $2 AND tenant_id = $3 RETURNING *',
+        [status, id, tenantId]
+      );
+
+      // Invalida cache de slots do barbeiro daquela data
+      const dateStr = new Date(appointmentObj.scheduled_time).toISOString().substring(0, 10);
+      const pattern = `tenant:${tenantId}:employee:${appointmentObj.employee_profile_id}:availability:${dateStr}:*`;
+      await cache.delByPattern(pattern);
+
+      // Notificar via WebSocket
+      const io = req.app.get('io');
+      if (io) {
+        io.to(`tenant:${tenantId}`).emit('appointment_updated', result.rows[0]);
+      }
+
+      return res.json(result.rows[0]);
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+};

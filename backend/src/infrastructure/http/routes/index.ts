@@ -9,6 +9,7 @@ import { waitlistController } from '../controllers/waitlistController.js';
 import { authController } from '../controllers/authController.js';
 import { clientsController } from '../controllers/clientsController.js';
 import { superAdminController } from '../controllers/superAdminController.js';
+import { notificationsController } from '../controllers/notificationsController.js';
 import { authMiddleware } from '../middlewares/authMiddleware.js';
 import { roleMiddleware } from '../middlewares/roleMiddleware.js';
 
@@ -225,6 +226,27 @@ router.post(
   '/clients',
   authMiddleware,
   clientsController.create
+);
+
+// =========================================================================
+// ROTAS DE NOTIFICAÇÕES (Notifications)
+// =========================================================================
+router.get(
+  '/notifications',
+  authMiddleware,
+  notificationsController.list
+);
+
+router.patch(
+  '/notifications/read-all',
+  authMiddleware,
+  notificationsController.markAllAsRead
+);
+
+router.patch(
+  '/notifications/:id/read',
+  authMiddleware,
+  notificationsController.markAsRead
 );
 
 export default router;

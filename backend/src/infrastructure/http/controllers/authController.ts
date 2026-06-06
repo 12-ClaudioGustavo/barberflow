@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { supabase } from '../../database/supabase.js';
 import { z } from 'zod';
+import { notificationService } from '../../services/notificationService.js';
 
 const signupSchema = z.object({
   role: z.enum(['owner', 'client']),
@@ -176,6 +177,30 @@ export const authController = {
 
       // Para donos de barbearia, retornar mensagem de cadastro pendente
       if (role === 'owner') {
+        // Notificar super admins em segundo plano
+        try {
+          const { data: superAdmins } = await supabase
+            .from('users')
+            .select('id')
+            .eq('role', 'super_admin');
+          
+          if (superAdmins && superAdmins.length > 0) {
+            const io = req.app.get('io');
+            for (const admin of superAdmins) {
+              await notificationService.createNotification({
+                userId: admin.id,
+                tenantId: targetTenantId,
+                title: 'Nova solicitação de barbearia',
+                message: `A barbearia "${barbershopName}" solicitou cadastro e está pendente de aprovação.`,
+                type: 'new_tenant_request',
+                io
+              });
+            }
+          }
+        } catch (err) {
+          console.error('Erro ao enviar notificação de nova barbearia:', err);
+        }
+
         return res.status(201).json({
           message: 'Cadastro recebido com sucesso! Aguardando aprovação do administrador.',
           status: 'pending',

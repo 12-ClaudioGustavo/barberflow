@@ -1,5 +1,6 @@
 import { Server } from 'socket.io';
 import app from './app.js';
+import { startReminderWorker } from './infrastructure/services/reminderWorker.js';
 
 const PORT = process.env.PORT || 3001;
 
@@ -20,16 +21,25 @@ app.set('io', io);
 
 io.on('connection', (socket) => {
   const tenantId = socket.handshake.query.tenantId;
+  const userId = socket.handshake.query.userId;
   
   if (tenantId) {
     socket.join(`tenant:${tenantId}`);
     console.log(`🔌 Cliente conectado e associado à sala: tenant:${tenantId}`);
   }
 
+  if (userId) {
+    socket.join(`user:${userId}`);
+    console.log(`🔌 Usuário conectado e associado à sala: user:${userId}`);
+  }
+
   socket.on('disconnect', () => {
     console.log('🔌 Cliente desconectado');
   });
 });
+
+// Iniciar worker de lembretes
+startReminderWorker(io);
 
 // Tratamento de desligamento gracioso (graceful shutdown)
 process.on('SIGTERM', () => {

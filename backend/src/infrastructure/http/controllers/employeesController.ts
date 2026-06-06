@@ -4,6 +4,7 @@ import { db } from '../../database/pg.js';
 import { z } from 'zod';
 import { supabase } from '../../database/supabase.js';
 import { cache } from '../../cache/redis.js';
+import { notificationService } from '../../services/notificationService.js';
 
 const employeeSchema = z.object({
   userId: z.string().uuid().optional(), // Referência ao ID do Supabase Auth (opcional)
@@ -125,6 +126,28 @@ export const employeesController = {
       }
 
       await client.query('COMMIT');
+
+      // Notificar administradores em segundo plano
+      try {
+        const adminsResult = await client.query(
+          `SELECT id FROM users WHERE tenant_id = $1 AND role IN ('owner', 'manager')`,
+          [tenantId]
+        );
+        const io = req.app.get('io');
+        for (const admin of adminsResult.rows) {
+          await notificationService.createNotification({
+            userId: admin.id,
+            tenantId,
+            title: 'Novo Barbeiro Cadastrado',
+            message: `O barbeiro "${parsed.name}" foi cadastrado com sucesso.`,
+            type: 'employee_created',
+            io
+          });
+        }
+      } catch (err) {
+        console.error('Erro ao notificar administradores sobre novo barbeiro:', err);
+      }
+
       return res.status(201).json({ user: userInsert.rows[0], profile });
     } catch (err: any) {
       await client.query('ROLLBACK');

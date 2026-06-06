@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { supabase } from '../../database/supabase.js';
 import { z } from 'zod';
+import { notificationService } from '../../services/notificationService.js';
 
 const rejectSchema = z.object({
   reason: z.string().min(5, 'Motivo de rejeição é obrigatório (mín. 5 caracteres)'),
@@ -73,6 +74,31 @@ export const superAdminController = {
         throw new Error(`Erro ao aprovar barbearia: ${updateErr.message}`);
       }
 
+      // Notificar o dono em segundo plano
+      try {
+        const { data: owners } = await supabase
+          .from('users')
+          .select('id')
+          .eq('tenant_id', id)
+          .eq('role', 'owner');
+        
+        if (owners && owners.length > 0) {
+          const io = req.app.get('io');
+          for (const owner of owners) {
+            await notificationService.createNotification({
+              userId: owner.id,
+              tenantId: id,
+              title: 'Barbearia Aprovada!',
+              message: `Sua barbearia "${tenant.name}" foi aprovada e já está ativa na plataforma.`,
+              type: 'tenant_approved',
+              io
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Erro ao enviar notificação de aprovação:', err);
+      }
+
       return res.status(200).json({
         message: `Barbearia "${tenant.name}" aprovada com sucesso!`,
         tenantId: id,
@@ -124,6 +150,31 @@ export const superAdminController = {
         throw new Error(`Erro ao rejeitar barbearia: ${updateErr.message}`);
       }
 
+      // Notificar o dono em segundo plano
+      try {
+        const { data: owners } = await supabase
+          .from('users')
+          .select('id')
+          .eq('tenant_id', id)
+          .eq('role', 'owner');
+        
+        if (owners && owners.length > 0) {
+          const io = req.app.get('io');
+          for (const owner of owners) {
+            await notificationService.createNotification({
+              userId: owner.id,
+              tenantId: id,
+              title: 'Solicitação Rejeitada',
+              message: `Sua solicitação de cadastro para a barbearia "${tenant.name}" foi rejeitada. Motivo: ${reason}`,
+              type: 'tenant_rejected',
+              io
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Erro ao enviar notificação de rejeição:', err);
+      }
+
       return res.status(200).json({
         message: `Barbearia "${tenant.name}" rejeitada.`,
         tenantId: id,
@@ -168,6 +219,31 @@ export const superAdminController = {
 
       if (updateErr) {
         throw new Error(`Erro ao suspender barbearia: ${updateErr.message}`);
+      }
+
+      // Notificar o dono em segundo plano
+      try {
+        const { data: owners } = await supabase
+          .from('users')
+          .select('id')
+          .eq('tenant_id', id)
+          .eq('role', 'owner');
+        
+        if (owners && owners.length > 0) {
+          const io = req.app.get('io');
+          for (const owner of owners) {
+            await notificationService.createNotification({
+              userId: owner.id,
+              tenantId: id,
+              title: 'Barbearia Suspensa',
+              message: `Sua barbearia "${tenant.name}" foi suspensa por falta de pagamento ou termos de uso.`,
+              type: 'tenant_suspended',
+              io
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Erro ao enviar notificação de suspensão:', err);
       }
 
       return res.status(200).json({

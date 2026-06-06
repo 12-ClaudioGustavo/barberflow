@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/useAuthStore';
+import NotificationBell from '@/components/NotificationBell';
 import {
   Scissors,
   LogOut,
@@ -202,6 +203,7 @@ export default function EmployeeDashboardPage() {
           <span className="font-bold text-base font-serif">Barber<span className="text-amber-500 font-sans">Flow</span></span>
         </div>
         <div className="flex items-center gap-4">
+          <NotificationBell />
           <span className="text-xs text-gray-400">Barbeiro: <strong className="text-white font-normal">{user.name}</strong></span>
           <button
             onClick={handleLogout}

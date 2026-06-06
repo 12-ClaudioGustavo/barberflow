@@ -3,6 +3,7 @@ import { AuthenticatedRequest } from '../middlewares/authMiddleware.js';
 import { db } from '../../database/pg.js';
 import { z } from 'zod';
 import { cache } from '../../cache/redis.js';
+import { notificationService } from '../../services/notificationService.js';
 
 const appointmentCreateSchema = z.object({
   clientProfileId: z.string().uuid(),
@@ -116,12 +117,79 @@ export const appointmentsController = {
 
       // 5. Emitir evento Websocket para atualização em tempo real (caso o WebSocket esteja acoplado no app)
       // Usaremos o emissor global se disponível (configuraremos no server.ts)
-       const io = req.app.get('io');
+      const io = req.app.get('io');
       if (io) {
         io.to(`tenant:${targetTenantId}`).emit('appointment_created', {
           appointment,
           message: 'Novo agendamento criado'
         });
+      }
+
+      // 6. Criar notificações em segundo plano para cliente, barbeiro e administradores
+      try {
+        const detailsRes = await pgClient.query(
+          `SELECT 
+            cp.user_id as client_user_id, cp.name as client_name,
+            u_emp.id as employee_user_id, u_emp.name as employee_name,
+            s.name as service_name,
+            t.name as tenant_name
+           FROM client_profiles cp
+           CROSS JOIN employee_profiles ep
+           INNER JOIN users u_emp ON ep.user_id = u_emp.id
+           CROSS JOIN services s
+           INNER JOIN tenants t ON t.id = $4
+           WHERE cp.id = $1 AND ep.id = $2 AND s.id = $3`,
+          [parsed.clientProfileId, parsed.employeeProfileId, parsed.serviceId, targetTenantId]
+        );
+
+        if (detailsRes.rows.length > 0) {
+          const { client_user_id, client_name, employee_user_id, employee_name, service_name, tenant_name } = detailsRes.rows[0];
+          
+          const timeStr = scheduledTimeDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+          const dateStrFormat = scheduledTimeDate.toLocaleDateString('pt-BR');
+
+          // Notificação do Cliente
+          if (client_user_id) {
+            await notificationService.createNotification({
+              userId: client_user_id,
+              tenantId: targetTenantId,
+              title: 'Reserva Agendada',
+              message: `Sua reserva para ${service_name} na barbearia "${tenant_name}" em ${dateStrFormat} às ${timeStr} foi criada.`,
+              type: 'appointment_created_client',
+              io
+            });
+          }
+
+          // Notificação do Barbeiro
+          if (employee_user_id) {
+            await notificationService.createNotification({
+              userId: employee_user_id,
+              tenantId: targetTenantId,
+              title: 'Nova Reserva Recebida',
+              message: `Você tem um novo agendamento com o cliente ${client_name} para ${service_name} em ${dateStrFormat} às ${timeStr}.`,
+              type: 'appointment_created_employee',
+              io
+            });
+          }
+
+          // Notificação dos Administradores
+          const adminsRes = await pgClient.query(
+            `SELECT id FROM users WHERE tenant_id = $1 AND role IN ('owner', 'manager')`,
+            [targetTenantId]
+          );
+          for (const admin of adminsRes.rows) {
+            await notificationService.createNotification({
+              userId: admin.id,
+              tenantId: targetTenantId,
+              title: 'Novo Agendamento na Barbearia',
+              message: `O cliente ${client_name} agendou ${service_name} com ${employee_name} para ${dateStrFormat} às ${timeStr}.`,
+              type: 'appointment_created_admin',
+              io
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Erro ao processar notificações do agendamento:', err);
       }
 
       return res.status(201).json(appointment);
@@ -239,6 +307,88 @@ export const appointmentsController = {
       const io = req.app.get('io');
       if (io) {
         io.to(`tenant:${tenantId}`).emit('appointment_updated', result.rows[0]);
+      }
+
+      // Notificações de alteração de status
+      try {
+        const detailsRes = await db.query(
+          `SELECT 
+            cp.user_id as client_user_id, cp.name as client_name,
+            u_emp.id as employee_user_id, u_emp.name as employee_name,
+            s.name as service_name,
+            t.name as tenant_name,
+            a.scheduled_time
+           FROM appointments a
+           INNER JOIN client_profiles cp ON a.client_profile_id = cp.id
+           INNER JOIN employee_profiles ep ON a.employee_profile_id = ep.id
+           INNER JOIN users u_emp ON ep.user_id = u_emp.id
+           INNER JOIN services s ON a.service_id = s.id
+           INNER JOIN tenants t ON a.tenant_id = t.id
+           WHERE a.id = $1`,
+          [id]
+        );
+
+        if (detailsRes.rows.length > 0) {
+          const { client_user_id, client_name, employee_user_id, employee_name, service_name, tenant_name, scheduled_time } = detailsRes.rows[0];
+          const timeStr = new Date(scheduled_time).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+          const dateStrFormat = new Date(scheduled_time).toLocaleDateString('pt-BR');
+
+          if (status === 'cancelled') {
+            // Notificar Cliente
+            if (client_user_id) {
+              await notificationService.createNotification({
+                userId: client_user_id,
+                tenantId,
+                title: 'Reserva Cancelada',
+                message: `Sua reserva para ${service_name} na barbearia "${tenant_name}" em ${dateStrFormat} às ${timeStr} foi cancelada.`,
+                type: 'appointment_cancelled_client',
+                io
+              });
+            }
+
+            // Notificar Barbeiro
+            if (employee_user_id) {
+              await notificationService.createNotification({
+                userId: employee_user_id,
+                tenantId,
+                title: 'Reserva Cancelada',
+                message: `O agendamento do cliente ${client_name} para ${service_name} em ${dateStrFormat} às ${timeStr} foi cancelado.`,
+                type: 'appointment_cancelled_employee',
+                io
+              });
+            }
+
+            // Notificar Admins
+            const adminsRes = await db.query(
+              `SELECT id FROM users WHERE tenant_id = $1 AND role IN ('owner', 'manager')`,
+              [tenantId]
+            );
+            for (const admin of adminsRes.rows) {
+              await notificationService.createNotification({
+                userId: admin.id,
+                tenantId,
+                title: 'Reserva Cancelada na Barbearia',
+                message: `O agendamento do cliente ${client_name} com ${employee_name} para ${service_name} em ${dateStrFormat} às ${timeStr} foi cancelado.`,
+                type: 'appointment_cancelled_admin',
+                io
+              });
+            }
+          } else if (status === 'confirmed') {
+            // Notificar Cliente
+            if (client_user_id) {
+              await notificationService.createNotification({
+                userId: client_user_id,
+                tenantId,
+                title: 'Reserva Confirmada!',
+                message: `Sua reserva para ${service_name} na barbearia "${tenant_name}" em ${dateStrFormat} às ${timeStr} foi confirmada pela barbearia.`,
+                type: 'appointment_confirmed_client',
+                io
+              });
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Erro ao processar notificações de status do agendamento:', err);
       }
 
       return res.json(result.rows[0]);

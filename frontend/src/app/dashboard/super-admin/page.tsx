@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/useAuthStore';
+import NotificationBell from '@/components/NotificationBell';
 import {
   Scissors, LogOut, Shield, BarChart3, Clock, Check, X, Menu,
   AlertCircle, Loader2, Building, Eye, Ban, ChevronDown
@@ -323,6 +324,9 @@ export default function SuperAdminPage() {
               {activeTab === 'all' && 'Todas as Barbearias'}
               {activeTab === 'stats' && 'Estatísticas da Plataforma'}
             </h1>
+          </div>
+          <div>
+            <NotificationBell />
           </div>
         </header>
 

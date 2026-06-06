@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/useAuthStore';
+import NotificationBell from '@/components/NotificationBell';
 import {
   Scissors,
   LogOut,
@@ -743,9 +744,12 @@ export default function AdminDashboardPage() {
               {activeTab === 'financial' && 'Finanças & Fluxo de Caixa'}
             </h1>
           </div>
-          <div className="bg-neutral-900/60 backdrop-blur-sm border border-white/5 rounded-xl px-4 py-2 text-xs text-gray-400 text-right">
-            <div>Tenant ID:</div>
-            <div className="font-mono text-white text-[10px] mt-0.5">{user.tenantId}</div>
+          <div className="flex items-center gap-4">
+            <NotificationBell />
+            <div className="bg-neutral-900/60 backdrop-blur-sm border border-white/5 rounded-xl px-4 py-2 text-xs text-gray-400 text-right">
+              <div>Tenant ID:</div>
+              <div className="font-mono text-white text-[10px] mt-0.5">{user.tenantId}</div>
+            </div>
           </div>
         </header>
 

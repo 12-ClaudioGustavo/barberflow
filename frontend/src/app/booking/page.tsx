@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/useAuthStore';
 import { LogOut, Scissors, ChevronRight, Calendar, X, Loader2, ChevronLeft, ChevronDown } from 'lucide-react';
+import NotificationBell from '@/components/NotificationBell';
 
 type Employee = {
   profile_id: string;
@@ -387,6 +388,7 @@ export default function ClientBookingPage() {
           <span className="font-bold text-base font-serif">Barber<span className="text-amber-500 font-sans">Flow</span></span>
         </div>
         <div className="flex items-center gap-4">
+          <NotificationBell />
           <span className="text-xs text-gray-400">Olá, <strong className="text-white font-normal">{user.name}</strong></span>
           <button
             onClick={handleLogout}

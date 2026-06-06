@@ -36,7 +36,10 @@ export const employeesController = {
   // Listar funcionários e seus perfis
   async list(req: AuthenticatedRequest, res: Response) {
     try {
-      const tenantId = req.user?.tenantId;
+      let tenantId = req.user?.tenantId;
+      if (req.user?.role === 'client' && req.query.tenantId) {
+        tenantId = req.query.tenantId as string;
+      }
       
       const query = `
         SELECT ep.id as profile_id, u.id as user_id, u.name, u.email, u.phone, u.avatar_url, u.is_active, ep.hiring_date, ep.commission_percentage

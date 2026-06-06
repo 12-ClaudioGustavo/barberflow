@@ -48,6 +48,7 @@ type Appointment = {
   client_name: string;
   employee_name: string;
   service_name: string;
+  barbershop_name?: string;
 };
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
@@ -69,6 +70,10 @@ const isTimePassed = (date: string, time: string): boolean => {
 export default function ClientBookingPage() {
   const router = useRouter();
   const { user, loading, initialized, session, signOut } = useAuthStore();
+
+  const [tenants, setTenants] = useState<any[]>([]);
+  const [selectedTenantId, setSelectedTenantId] = useState<string>('');
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [services, setServices] = useState<Service[]>([]);
@@ -122,18 +127,42 @@ export default function ClientBookingPage() {
     return res;
   };
 
-  // Load initial data: employees, services, clients
+  // Carregar lista de barbearias (apenas se for cliente)
   useEffect(() => {
-    const loadInitialData = async () => {
+    const loadTenants = async () => {
       if (!user || !session) return;
+      try {
+        const res = await fetch(`${apiUrl}/auth/tenants`);
+        if (res.ok) {
+          const tenantsData = await res.json();
+          setTenants(tenantsData);
+        }
+      } catch (err) {
+        console.error('Erro ao carregar barbearias:', err);
+      }
+    };
+    loadTenants();
+  }, [user, session]);
+
+  // Sincronizar tenantId inicial do usuário
+  useEffect(() => {
+    if (user?.tenantId && !selectedTenantId) {
+      setSelectedTenantId(user.tenantId);
+    }
+  }, [user, selectedTenantId]);
+
+  // Load initial data: employees, services, clients based on selectedTenantId
+  useEffect(() => {
+    const loadBarbershopData = async () => {
+      if (!user || !session || !selectedTenantId) return;
 
       setLoadingData(true);
       setErrorMsg('');
 
       try {
         const [servicesRes, employeesRes] = await Promise.all([
-          fetchWithAuth(`${apiUrl}/services?all=true`),
-          fetchWithAuth(`${apiUrl}/employees`),
+          fetchWithAuth(`${apiUrl}/services?all=true&tenantId=${selectedTenantId}`),
+          fetchWithAuth(`${apiUrl}/employees?tenantId=${selectedTenantId}`),
         ]);
 
         if (!servicesRes.ok || !employeesRes.ok) {
@@ -161,15 +190,17 @@ export default function ClientBookingPage() {
           setClients(await clientsRes.json());
         }
 
-        // Load appointments
+        // Load appointments (across all barbearias for this client)
         const apptsRes = await fetchWithAuth(`${apiUrl}/booking`);
         if (apptsRes.ok) {
           setAppointments(await apptsRes.json());
         }
 
-        // Set initial display date to today
-        const today = new Date().toISOString().substring(0, 10);
-        setSelectedDisplayDate(today);
+        // Set initial display date to today if not set
+        if (!selectedDisplayDate) {
+          const today = new Date().toISOString().substring(0, 10);
+          setSelectedDisplayDate(today);
+        }
       } catch (err: any) {
         setErrorMsg(err.message || 'Falha ao carregar a página de agendamento.');
       } finally {
@@ -177,13 +208,13 @@ export default function ClientBookingPage() {
       }
     };
 
-    loadInitialData();
-  }, [user, session, isClientRole]);
+    loadBarbershopData();
+  }, [user, session, selectedTenantId, isClientRole, refreshTrigger]);
 
   // Load weekly availability for all employees
   useEffect(() => {
     const loadWeeklyAvailability = async () => {
-      if (!user || !session || employees.length === 0) return;
+      if (!user || !session || !selectedTenantId || employees.length === 0 || services.length === 0) return;
 
       setLoadingData(true);
       setErrorMsg('');
@@ -192,18 +223,20 @@ export default function ClientBookingPage() {
         const startDate = new Date().toISOString().substring(0, 10);
         const newWeeklyData = new Map<string, Map<string, DailyAvailability>>();
 
-        // For each employee, load 7-day availability for the first service
-        const firstServiceId = services.find(s => s.is_active)?.id;
-        if (!firstServiceId) {
-          throw new Error('Nenhum serviço disponível.');
+        // For each employee, load 7-day availability for the first active service
+        const firstService = services.find(s => s.is_active);
+        if (!firstService) {
+          setWeeklyData(new Map());
+          setLoadingData(false);
+          return;
         }
 
         await Promise.all(
           employees.map(async (emp) => {
             try {
               const res = await fetchWithAuth(
-                `${apiUrl}/booking/weekly-slots?tenantId=${encodeURIComponent(user.tenantId)}&employeeId=${encodeURIComponent(emp.profile_id)}&serviceId=${encodeURIComponent(firstServiceId)}&startDate=${startDate}&days=7`
-              );
+                `${apiUrl}/booking/weekly-slots?tenantId=${encodeURIComponent(selectedTenantId)}&employeeId=${encodeURIComponent(emp.profile_id)}&serviceId=${encodeURIComponent(firstService.id)}&startDate=${startDate}&days=7`
+               );
 
               if (res.ok) {
                 const weekData = await res.json();
@@ -228,7 +261,7 @@ export default function ClientBookingPage() {
     };
 
     loadWeeklyAvailability();
-  }, [employees, user, session, services]);
+  }, [employees, services, selectedTenantId, user, session, refreshTrigger]);
 
   const handleLogout = async () => {
     await signOut();
@@ -292,6 +325,7 @@ export default function ClientBookingPage() {
       setShowBookingModal(false);
       setSelectedServiceId('');
       setSelectedClientId('');
+      setRefreshTrigger(prev => prev + 1);
 
       // Reload appointments
       const apptsRes = await fetchWithAuth(`${apiUrl}/booking`);
@@ -365,14 +399,35 @@ export default function ClientBookingPage() {
       </header>
 
       <main className="flex-1 p-8 max-w-7xl mx-auto w-full">
-        <div className="mb-10">
-          <div className="flex items-center gap-3 mb-4">
+        <div className="mb-10 flex flex-col md:flex-row md:items-center md:justify-between gap-6 border-b border-white/5 pb-8">
+          <div className="flex items-center gap-3">
             <Calendar className="h-8 w-8 text-amber-500" />
             <div>
               <h1 className="text-3xl font-bold font-serif">Agende com flexibilidade</h1>
               <p className="text-sm text-gray-400 mt-1">Escolha uma data e veja os horários disponíveis dos barbeiros.</p>
             </div>
           </div>
+
+          {/* Seletor de Barbearia */}
+          {tenants.length > 0 && (
+            <div className="min-w-[280px] bg-neutral-900 border border-white/10 rounded-2xl p-4 flex flex-col gap-1.5 shadow-lg">
+              <label className="text-[10px] text-gray-400 uppercase tracking-wider font-bold">Selecionar Barbearia</label>
+              <div className="relative">
+                <select
+                  value={selectedTenantId}
+                  onChange={(e) => setSelectedTenantId(e.target.value)}
+                  className="w-full bg-neutral-950 border border-white/10 rounded-xl py-2.5 px-3.5 text-sm focus:outline-none focus:border-amber-500/50 appearance-none pr-10 text-white font-medium cursor-pointer"
+                >
+                  {tenants.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
+              </div>
+            </div>
+          )}
         </div>
 
         {loadingData ? (
@@ -508,8 +563,13 @@ export default function ClientBookingPage() {
                         className="rounded-2xl border border-white/10 bg-neutral-900 p-4 flex items-center justify-between hover:border-white/20 transition"
                       >
                         <div className="flex-1">
-                          <p className="font-semibold">{appt.service_name}</p>
-                          <p className="text-sm text-gray-400">
+                          {appt.barbershop_name && (
+                            <p className="text-[10px] text-amber-500 font-bold uppercase tracking-wider mb-1">
+                              🏪 {appt.barbershop_name}
+                            </p>
+                          )}
+                          <p className="font-semibold text-neutral-100">{appt.service_name}</p>
+                          <p className="text-sm text-gray-400 mt-0.5">
                             {appt.employee_name} • {dateStr}
                           </p>
                         </div>
@@ -680,6 +740,10 @@ export default function ClientBookingPage() {
           </div>
         </div>
       )}
+      {/* Footer */}
+      <footer className="border-t border-white/5 py-6 mt-auto text-center text-xs text-gray-500 z-10">
+        BarberFlow &copy; {new Date().getFullYear()} - Desenvolvido por Claudio Gustavo
+      </footer>
     </div>
   );
 }

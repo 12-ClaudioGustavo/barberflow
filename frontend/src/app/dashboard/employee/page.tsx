@@ -426,6 +426,11 @@ export default function EmployeeDashboardPage() {
           </div>
         )}
       </main>
+
+      {/* Footer */}
+      <footer className="border-t border-white/5 py-6 mt-auto text-center text-xs text-gray-500 z-10">
+        BarberFlow &copy; {new Date().getFullYear()} - Desenvolvido por Claudio Gustavo
+      </footer>
     </div>
   );
 }

@@ -21,16 +21,23 @@ export const appointmentsController = {
       
       const scheduledTimeDate = new Date(parsed.scheduledTime);
       
-      // 1. Obter duração do serviço
+      // 1. Obter duração do serviço e tenant correspondente sem travar no tenant do token do usuário se ele for cliente
       const serviceRes = await pgClient.query(
-        'SELECT duration_minutes, name FROM services WHERE id = $1 AND tenant_id = $2',
-        [parsed.serviceId, tenantId]
+        'SELECT duration_minutes, name, tenant_id FROM services WHERE id = $1',
+        [parsed.serviceId]
       );
       if (serviceRes.rowCount === 0) {
         return res.status(404).json({ error: 'Service not found' });
       }
       
       const serviceDuration = serviceRes.rows[0].duration_minutes;
+      const targetTenantId = serviceRes.rows[0].tenant_id;
+
+      // Se não for cliente e o tenant_id do serviço não bater com o do usuário logado, barra a operação
+      if (req.user?.role !== 'client' && targetTenantId !== tenantId) {
+        return res.status(403).json({ error: 'Unauthorized: Staff can only book for their own barbershop.' });
+      }
+      
       const endTimeDate = new Date(scheduledTimeDate.getTime() + serviceDuration * 60000);
 
       // Iniciar transação serializável
@@ -48,7 +55,7 @@ export const appointmentsController = {
       `;
       const overlapRes = await pgClient.query(overlapQuery, [
         parsed.employeeProfileId,
-        tenantId,
+        targetTenantId,
         scheduledTimeDate.toISOString(),
         endTimeDate.toISOString()
       ]);
@@ -60,14 +67,37 @@ export const appointmentsController = {
         });
       }
 
-      // 3. Inserir o agendamento
+      // 3. Verificar conflitos de horário do próprio cliente com intervalo de 30 minutos de segurança (para evitar sabotagem)
+      const bufferMinutes = 30;
+      const clientOverlapQuery = `
+        SELECT id, scheduled_time, end_time FROM appointments
+        WHERE client_profile_id = $1
+          AND status != 'cancelled'
+          AND (
+            (scheduled_time - INTERVAL '${bufferMinutes} minutes' < $3 AND end_time + INTERVAL '${bufferMinutes} minutes' > $2)
+          )
+      `;
+      const clientOverlapRes = await pgClient.query(clientOverlapQuery, [
+        parsed.clientProfileId,
+        scheduledTimeDate.toISOString(),
+        endTimeDate.toISOString()
+      ]);
+
+      if (clientOverlapRes.rowCount && clientOverlapRes.rowCount > 0) {
+        await pgClient.query('ROLLBACK');
+        return res.status(409).json({
+          error: `Conflito de agenda do cliente: Você já possui um agendamento muito próximo deste horário. Por favor, deixe um intervalo mínimo de ${bufferMinutes} minutos entre seus agendamentos.`
+        });
+      }
+
+      // 4. Inserir o agendamento
       const insertQuery = `
         INSERT INTO appointments (tenant_id, client_profile_id, employee_profile_id, service_id, scheduled_time, end_time, status)
         VALUES ($1, $2, $3, $4, $5, $6, 'scheduled')
         RETURNING *
       `;
       const result = await pgClient.query(insertQuery, [
-        tenantId,
+        targetTenantId,
         parsed.clientProfileId,
         parsed.employeeProfileId,
         parsed.serviceId,
@@ -79,16 +109,16 @@ export const appointmentsController = {
       
       const appointment = result.rows[0];
 
-      // 4. Invalidação do cache Redis para o barbeiro e data correspondente
+      // 5. Invalidação do cache Redis para o barbeiro e data correspondente
       const dateStr = scheduledTimeDate.toISOString().substring(0, 10);
-      const pattern = `tenant:${tenantId}:employee:${parsed.employeeProfileId}:availability:${dateStr}:*`;
+      const pattern = `tenant:${targetTenantId}:employee:${parsed.employeeProfileId}:availability:${dateStr}:*`;
       await cache.delByPattern(pattern);
 
       // 5. Emitir evento Websocket para atualização em tempo real (caso o WebSocket esteja acoplado no app)
       // Usaremos o emissor global se disponível (configuraremos no server.ts)
-      const io = req.app.get('io');
+       const io = req.app.get('io');
       if (io) {
-        io.to(`tenant:${tenantId}`).emit('appointment_created', {
+        io.to(`tenant:${targetTenantId}`).emit('appointment_created', {
           appointment,
           message: 'Novo agendamento criado'
         });
@@ -121,16 +151,34 @@ export const appointmentsController = {
       const { employeeId, date } = req.query;
       
       let query = `
-        SELECT a.*, c.name as client_name, c.phone as client_phone, u.name as employee_name, s.name as service_name
+        SELECT a.*, c.name as client_name, c.phone as client_phone, u.name as employee_name, s.name as service_name, t.name as barbershop_name
         FROM appointments a
         INNER JOIN client_profiles c ON a.client_profile_id = c.id
         INNER JOIN employee_profiles ep ON a.employee_profile_id = ep.id
         INNER JOIN users u ON ep.user_id = u.id
         INNER JOIN services s ON a.service_id = s.id
-        WHERE a.tenant_id = $1
+        INNER JOIN tenants t ON a.tenant_id = t.id
+        WHERE 1=1
       `;
-      const params: any[] = [tenantId];
-      let paramIndex = 2;
+      const params: any[] = [];
+      let paramIndex = 1;
+
+      // Se não for super admin e não for cliente, restringe ao tenant do usuário logado
+      if (req.user?.role !== 'super_admin' && req.user?.role !== 'client') {
+        query += ` AND a.tenant_id = $${paramIndex}`;
+        params.push(tenantId);
+        paramIndex++;
+      } else if (req.user?.role === 'client') {
+        // Se for cliente e passou tenantId na query, filtra por ele. Senão, mostra de todas as barbearias.
+        if (req.query.tenantId) {
+          query += ` AND a.tenant_id = $${paramIndex}`;
+          params.push(req.query.tenantId);
+          paramIndex++;
+        }
+        query += ` AND c.user_id = $${paramIndex}`;
+        params.push(req.user.id);
+        paramIndex++;
+      }
 
       if (employeeId) {
         query += ` AND a.employee_profile_id = $${paramIndex}`;

@@ -23,6 +23,8 @@ export default function LoginPage() {
         router.push('/dashboard/super-admin');
       } else if (user.role === 'owner' || user.role === 'manager') {
         router.push('/dashboard/admin');
+      } else if (user.role === 'employee') {
+        router.push('/dashboard/employee');
       } else {
         router.push('/booking');
       }
@@ -50,6 +52,8 @@ export default function LoginPage() {
         router.push('/dashboard/super-admin');
       } else if (role === 'owner' || role === 'manager') {
         router.push('/dashboard/admin');
+      } else if (role === 'employee') {
+        router.push('/dashboard/employee');
       } else {
         router.push('/booking');
       }
@@ -60,7 +64,7 @@ export default function LoginPage() {
   };
 
   return (
-    <main className="min-h-screen bg-black flex items-center justify-center relative overflow-hidden px-4">
+    <main className="min-h-screen bg-black flex flex-col items-center justify-center relative overflow-hidden px-4">
       {/* Elemento de background decorativo */}
       <div className="absolute top-[-20%] left-[-10%] w-[500px] h-[500px] rounded-full bg-amber-500/10 blur-[120px] pointer-events-none" />
       <div className="absolute bottom-[-20%] right-[-10%] w-[500px] h-[500px] rounded-full bg-amber-500/5 blur-[120px] pointer-events-none" />
@@ -162,6 +166,11 @@ export default function LoginPage() {
             </p>
           </div>
         </div>
+
+        {/* Rodapé de Autoria */}
+        <p className="text-center text-[10px] text-gray-600 mt-6">
+          BarberFlow SaaS &copy; {new Date().getFullYear()} - Criado por Claudio Gustavo
+        </p>
       </div>
     </main>
   );

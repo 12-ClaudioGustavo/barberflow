@@ -14,7 +14,10 @@ export const servicesController = {
   // Listar serviços do tenant
   async list(req: AuthenticatedRequest, res: Response) {
     try {
-      const tenantId = req.user?.tenantId;
+      let tenantId = req.user?.tenantId;
+      if (req.user?.role === 'client' && req.query.tenantId) {
+        tenantId = req.query.tenantId as string;
+      }
       const all = req.query.all === 'true' || req.user?.role === 'owner' || req.user?.role === 'manager';
       
       let query = supabase

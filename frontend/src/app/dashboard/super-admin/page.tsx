@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/useAuthStore';
 import {
-  Scissors, LogOut, Shield, BarChart3, Clock, Check, X,
+  Scissors, LogOut, Shield, BarChart3, Clock, Check, X, Menu,
   AlertCircle, Loader2, Building, Eye, Ban, ChevronDown
 } from 'lucide-react';
 
@@ -37,6 +37,7 @@ export default function SuperAdminPage() {
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
 
   const [activeTab, setActiveTab] = useState<'pending' | 'all' | 'stats'>('pending');
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [stats, setStats] = useState<PlatformStats | null>(null);
   const [tabLoading, setTabLoading] = useState(false);
@@ -202,15 +203,50 @@ export default function SuperAdminPage() {
     );
   }
 
+  const handleTabChange = (tab: 'pending' | 'all' | 'stats') => {
+    setActiveTab(tab);
+    setMobileMenuOpen(false);
+  };
+
   return (
-    <div className="min-h-screen bg-black text-white flex flex-col md:flex-row font-sans">
+    <div className="min-h-screen bg-black text-white flex flex-col md:flex-row font-sans relative">
       <div className="absolute top-0 left-0 w-[500px] h-[500px] rounded-full bg-amber-500/5 blur-[120px] pointer-events-none z-0" />
       <div className="absolute bottom-0 right-0 w-[500px] h-[500px] rounded-full bg-amber-500/5 blur-[120px] pointer-events-none z-0" />
 
+      {/* Header Superior Mobile */}
+      <div className="flex md:hidden items-center justify-between p-4 bg-neutral-950/90 backdrop-blur-md border-b border-white/5 z-20 sticky top-0">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 bg-gradient-to-tr from-amber-600 to-amber-400 rounded-lg flex items-center justify-center">
+            <Scissors className="h-4.5 w-4.5 text-black stroke-[2]" />
+          </div>
+          <span className="font-bold text-md tracking-tight">
+            Barber<span className="text-amber-500">Flow</span>
+          </span>
+        </div>
+        <button
+          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+          className="p-2 text-gray-400 hover:text-white focus:outline-none"
+        >
+          {mobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+        </button>
+      </div>
+
+      {/* Overlay para fechar menu no mobile */}
+      {mobileMenuOpen && (
+        <div
+          onClick={() => setMobileMenuOpen(false)}
+          className="fixed inset-0 bg-black/60 z-20 md:hidden backdrop-blur-sm"
+        />
+      )}
+
       {/* Sidebar */}
-      <aside className="w-full md:w-64 border-b md:border-r border-white/5 bg-neutral-950/80 backdrop-blur-md p-6 flex flex-col justify-between z-10 shrink-0">
+      <aside className={`
+        fixed inset-y-0 left-0 z-30 w-64 border-r border-white/5 bg-neutral-950/95 p-6 flex flex-col justify-between transition-transform duration-300 transform
+        md:relative md:translate-x-0 md:bg-neutral-950/80 md:backdrop-blur-md md:z-10 md:shrink-0
+        ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+      `}>
         <div className="space-y-8">
-          <div className="flex items-center gap-2">
+          <div className="hidden md:flex items-center gap-2">
             <div className="w-9 h-9 bg-gradient-to-tr from-amber-600 to-amber-400 rounded-xl flex items-center justify-center shadow-lg shadow-amber-500/10 border border-amber-400/20">
               <Scissors className="h-5 w-5 text-black stroke-[2]" />
             </div>
@@ -232,25 +268,32 @@ export default function SuperAdminPage() {
           </div>
 
           <nav className="space-y-1">
-            <button onClick={() => setActiveTab('pending')}
+            <button onClick={() => handleTabChange('pending')}
               className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition w-full text-left ${activeTab === 'pending' ? 'bg-gradient-to-r from-amber-600 to-amber-500 text-black shadow-lg shadow-amber-500/15' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}>
               <Clock className="h-4 w-4" /> Pendentes
             </button>
-            <button onClick={() => setActiveTab('all')}
+            <button onClick={() => handleTabChange('all')}
               className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition w-full text-left ${activeTab === 'all' ? 'bg-gradient-to-r from-amber-600 to-amber-500 text-black shadow-lg shadow-amber-500/15' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}>
               <Building className="h-4 w-4" /> Todas Barbearias
             </button>
-            <button onClick={() => setActiveTab('stats')}
+            <button onClick={() => handleTabChange('stats')}
               className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition w-full text-left ${activeTab === 'stats' ? 'bg-gradient-to-r from-amber-600 to-amber-500 text-black shadow-lg shadow-amber-500/15' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}>
               <BarChart3 className="h-4 w-4" /> Estatísticas
             </button>
           </nav>
         </div>
 
-        <button onClick={handleLogout}
-          className="flex items-center gap-3 px-4 py-3 rounded-xl text-red-400 hover:text-red-300 hover:bg-red-500/5 transition mt-8 text-left w-full text-sm font-medium">
-          <LogOut className="h-4 w-4" /> Sair do Sistema
-        </button>
+        <div className="space-y-4">
+          <button onClick={handleLogout}
+            className="flex items-center gap-3 px-4 py-3 rounded-xl text-red-400 hover:text-red-300 hover:bg-red-500/5 transition text-left w-full text-sm font-medium">
+            <LogOut className="h-4 w-4" /> Sair do Sistema
+          </button>
+          
+          <div className="pt-4 border-t border-white/5 text-center">
+            <p className="text-[10px] text-gray-600 font-semibold tracking-wide">BarberFlow SaaS</p>
+            <p className="text-[9px] text-gray-500 mt-0.5">Desenvolvido por Claudio Gustavo</p>
+          </div>
+        </div>
       </aside>
 
       {/* Conteúdo Principal */}

@@ -177,7 +177,7 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="flex items-center gap-2">
             <span className="font-bold tracking-tight text-neutral-300">Barber<span className="text-amber-500">Flow</span></span>
-            <span>&copy; {new Date().getFullYear()} BarberFlow. Todos os direitos reservados.</span>
+            <span>&copy; {new Date().getFullYear()} BarberFlow. Desenvolvido por Claudio Gustavo. Todos os direitos reservados.</span>
           </div>
           <div className="flex items-center gap-6">
             <a href="#" className="hover:text-neutral-300 transition-colors">Termos de Uso</a>

@@ -9,6 +9,17 @@ export default function Providers({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     initializeAuth();
+
+    // Registrar Service Worker para habilitar PWA
+    if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js')
+        .then((reg) => {
+          console.log('Service Worker registrado:', reg.scope);
+        })
+        .catch((err) => {
+          console.error('Falha ao registrar Service Worker:', err);
+        });
+    }
   }, [initializeAuth]);
 
   const [queryClient] = useState(

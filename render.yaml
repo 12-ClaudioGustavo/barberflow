@@ -10,7 +10,7 @@ services:
       - key: NODE_ENV
         value: production
       - key: PORT
-        value: 3001
+        value: "3001"
       - key: DATABASE_URL
         sync: false
       - key: SUPABASE_URL
@@ -21,3 +21,5 @@ services:
         sync: false
       - key: CORS_ORIGIN
         sync: false
+      - key: NODE_VERSION
+        value: "20"
